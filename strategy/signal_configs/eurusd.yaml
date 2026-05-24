@@ -1,0 +1,11 @@
+symbol: EURUSD
+ema_fast: 9
+ema_slow: 21
+atr_period: 14
+rsi_period: 14
+momentum_window_fast: 5
+momentum_window_slow: 20
+vwap_touch_atr_multiplier: 0.5
+volume_spike_factor: 1.5
+max_spread_pts: 1.5
+active_sessions: [LONDON, NY, OVERLAP]

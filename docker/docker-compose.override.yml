@@ -1,0 +1,15 @@
+# Dev overrides: hot-reload source, expose extra ports
+version: "3.9"
+
+services:
+  app:
+    volumes:
+      - ../src:/app/src:ro
+    environment:
+      LOG_FORMAT: console
+
+  dashboard:
+    volumes:
+      - ../dashboard:/app/dashboard:ro
+    environment:
+      LOG_FORMAT: console

@@ -1,0 +1,13 @@
+trend:
+  trend_strength_min: 0.55
+  volatility_ratio_max: 1.5
+
+range:
+  trend_strength_max: 0.55
+  volatility_ratio_max: 1.5
+
+high_vol:
+  volatility_ratio_min: 1.5
+
+low_vol:
+  volatility_ratio_max: 0.4

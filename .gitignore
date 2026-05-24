@@ -1,0 +1,56 @@
+# Secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.Python
+
+# ML model artifacts (large binaries)
+src/bot_scalp_x/regime/models/*.pkl
+src/bot_scalp_x/regime/models/*.joblib
+src/bot_scalp_x/regime/models/*.json
+src/bot_scalp_x/regime/models/*.ubj
+
+# Datasets (large data files)
+datasets/raw/*
+datasets/processed/*
+!datasets/raw/.gitkeep
+!datasets/processed/.gitkeep
+
+# Compiled MQL5
+mql5/*.ex5
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+sanity_report.json
+*.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+research/notebooks/*.ipynb
+
+# Docker volumes (local dev)
+docker/volumes/

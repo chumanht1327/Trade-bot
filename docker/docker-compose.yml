@@ -1,0 +1,115 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bot_scalp_x}
+      POSTGRES_USER: ${POSTGRES_USER:-bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bot} -d ${POSTGRES_DB:-bot_scalp_x}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    environment:
+      ENV: ${ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      DB__URL: postgresql+asyncpg://${POSTGRES_USER:-bot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bot_scalp_x}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MT5__MOCK_MODE: ${MT5__MOCK_MODE:-true}
+      MT5__LOGIN: ${MT5__LOGIN:-0}
+      MT5__PASSWORD: ${MT5__PASSWORD:-}
+      MT5__SERVER: ${MT5__SERVER:-demo.broker.com}
+      RISK__RISK_PER_TRADE_PCT: ${RISK__RISK_PER_TRADE_PCT:-0.25}
+      RISK__DAILY_DD_LIMIT_PCT: ${RISK__DAILY_DD_LIMIT_PCT:-2.0}
+      RISK__WEEKLY_DD_LIMIT_PCT: ${RISK__WEEKLY_DD_LIMIT_PCT:-5.0}
+      RISK__MAX_CONSECUTIVE_LOSSES: ${RISK__MAX_CONSECUTIVE_LOSSES:-5}
+      RISK__MAX_LATENCY_MS: ${RISK__MAX_LATENCY_MS:-150.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    ports:
+      - "8000:8000"
+    environment:
+      DB__URL: postgresql+asyncpg://${POSTGRES_USER:-bot}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bot_scalp_x}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
