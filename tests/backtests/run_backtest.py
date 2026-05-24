@@ -12,12 +12,17 @@ from bot_scalp_x.data.schemas import FeatureRow
 from bot_scalp_x.regime.classifier import RegimeClassifier
 from bot_scalp_x.risk.position_sizer import calculate_position
 from bot_scalp_x.signals.aggregator import SignalAggregator
-from tests.backtests.framework.metrics import backtest_summary
+from tests.backtests.framework.metrics import backtest_summary, generate_tearsheet
 from tests.backtests.framework.portfolio import VirtualPortfolio
 from tests.backtests.framework.tick_replay import replay_ticks
 
 
-async def run(symbol: str, parquet_path: Path, initial_equity: float = 10_000.0) -> dict:
+async def run(
+    symbol: str,
+    parquet_path: Path,
+    initial_equity: float = 10_000.0,
+    report_path: Path | None = None,
+) -> dict:
     engine = FeatureEngine(symbol)
     classifier = RegimeClassifier(symbol)
     aggregator = SignalAggregator(min_votes=2)
@@ -55,6 +60,12 @@ async def run(symbol: str, parquet_path: Path, initial_equity: float = 10_000.0)
         bar += 1
 
     summary = backtest_summary(portfolio.closed_trades, equity_curve)
+
+    if report_path is not None:
+        generate_tearsheet(
+            portfolio.closed_trades, equity_curve, report_path, title=f"BOT-SCALP-X {symbol}"
+        )
+
     return summary
 
 
@@ -63,9 +74,11 @@ def main() -> None:
     parser.add_argument("--symbol", default="XAUUSD")
     parser.add_argument("--data", type=Path, required=True, help="Path to tick parquet file")
     parser.add_argument("--equity", type=float, default=10_000.0)
+    parser.add_argument("--report", type=Path, default=None, help="HTML tearsheet output path")
     args = parser.parse_args()
 
-    summary = asyncio.run(run(args.symbol, args.data, args.equity))
+    report_path = args.report or Path(f"backtest_{args.symbol}.html")
+    summary = asyncio.run(run(args.symbol, args.data, args.equity, report_path=report_path))
     print(json.dumps(summary, indent=2))
 
     if not summary["passes"]:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from tests.backtests.framework.portfolio import ClosedTrade
@@ -68,3 +70,31 @@ def backtest_summary(trades: list[ClosedTrade], equity_curve: list[float]) -> di
             and expectancy(trades) > 0
         ),
     }
+
+
+def generate_tearsheet(
+    trades: list[ClosedTrade],
+    equity_curve: list[float],
+    output_path: str | Path = "backtest_report.html",
+    title: str = "BOT-SCALP-X",
+) -> None:
+    """Generate an HTML tearsheet via quantstats. Silently skips if not installed."""
+    try:
+        import pandas as pd
+        import quantstats as qs  # type: ignore[import]
+
+        if not trades or len(equity_curve) < 2:
+            return
+
+        # Convert per-trade P&L to percentage returns against prior equity
+        pnl_series = []
+        eq = equity_curve[0]
+        for trade in trades:
+            ret = trade.pnl / eq if eq != 0.0 else 0.0
+            pnl_series.append(ret)
+            eq += trade.pnl
+
+        returns = pd.Series(pnl_series)
+        qs.reports.html(returns, output=str(output_path), title=title)
+    except ImportError:
+        pass

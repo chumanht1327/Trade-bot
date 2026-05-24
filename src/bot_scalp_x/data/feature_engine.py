@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import numpy as np
-import pandas as pd
+import talib  # type: ignore[import]
 
 from bot_scalp_x.data.schemas import FeatureRow, Session, Tick
 
@@ -27,41 +27,20 @@ def _session_for(ts: datetime) -> Session:
     return Session.OFF
 
 
-def _wilder_atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """Wilder's smoothed ATR — expects arrays of length >= period + 1."""
-    tr = np.maximum(
-        highs[1:] - lows[1:],
-        np.maximum(
-            np.abs(highs[1:] - closes[:-1]),
-            np.abs(lows[1:] - closes[:-1]),
-        ),
-    )
-    if len(tr) < period:
-        return float(np.mean(tr)) if len(tr) > 0 else 0.0
-    atr = float(np.mean(tr[:period]))
-    for v in tr[period:]:
-        atr = (atr * (period - 1) + v) / period
-    return atr
-
-
 def _anchored_vwap(prices: np.ndarray, volumes: np.ndarray) -> float:
     """Session-anchored VWAP from the start of the provided window."""
-    if volumes.sum() == 0:
+    total_vol = volumes.sum()
+    if total_vol == 0:
         return float(prices[-1]) if len(prices) else 0.0
-    return float(np.sum(prices * volumes) / np.sum(volumes))
+    return float(np.sum(prices * volumes) / total_vol)
 
 
-def _momentum(prices: np.ndarray, window: int) -> float:
-    """Rate-of-change momentum: (price_now - price_n_ago) / price_n_ago."""
-    if len(prices) <= window:
-        return 0.0
-    base = prices[-(window + 1)]
-    if base == 0:
-        return 0.0
-    return float((prices[-1] - base) / base)
-
-
-def _liquidity_score(spread_pts: Decimal, spread_history: list[float], volume: float, volume_history: list[float]) -> float:
+def _liquidity_score(
+    spread_pts: Decimal,
+    spread_history: list[float],
+    volume: float,
+    volume_history: list[float],
+) -> float:
     """Composite 0–1 score: 1 = tight spread + high volume = liquid."""
     if not spread_history or not volume_history:
         return 0.5
@@ -95,19 +74,31 @@ class FeatureEngine:
         if n < min_required:
             return None
 
-        mids = np.array([float(t.mid) for t in self._ticks])
-        bids = np.array([float(t.bid) for t in self._ticks])
-        asks = np.array([float(t.ask) for t in self._ticks])
-        vols = np.array([t.volume for t in self._ticks])
-        spreads = [float(t.spread_pts) for t in self._ticks]
+        # Use ask/bid as high/low proxy for tick data (no OHLC bars available)
+        highs = np.array([float(t.ask) for t in self._ticks], dtype=np.float64)
+        lows = np.array([float(t.bid) for t in self._ticks], dtype=np.float64)
+        closes = np.array([float(t.mid) for t in self._ticks], dtype=np.float64)
+        vols = np.array([t.volume for t in self._ticks], dtype=np.float64)
 
-        # Use mid as a proxy for high/low (tick data doesn't have OHLC bars)
-        atr = _wilder_atr(asks, bids, mids, self.atr_period)
-        vwap = _anchored_vwap(mids, vols)
-        mom5 = _momentum(mids, 5)
-        mom20 = _momentum(mids, 20)
+        # ATR via TA-Lib (Wilder's RMA smoothing, same as our old manual impl)
+        atr_arr = talib.ATR(highs, lows, closes, timeperiod=self.atr_period)
+        atr = float(atr_arr[-1]) if not np.isnan(atr_arr[-1]) else 0.0
+
+        # VWAP — TA-Lib has no VWAP; keep the volume-weighted mean
+        vwap = _anchored_vwap(closes, vols)
+
+        # Rate-of-Change momentum (TA-Lib ROC returns percent; convert to decimal ratio)
+        roc5_arr = talib.ROC(closes, timeperiod=5)
+        mom5 = float(roc5_arr[-1]) / 100.0 if not np.isnan(roc5_arr[-1]) else 0.0
+
+        roc20_arr = talib.ROC(closes, timeperiod=20)
+        mom20 = float(roc20_arr[-1]) / 100.0 if not np.isnan(roc20_arr[-1]) else 0.0
+
+        spreads = [float(t.spread_pts) for t in self._ticks]
         liq = _liquidity_score(tick.spread_pts, spreads[:-1], tick.volume, list(vols[:-1]))
-        session = _session_for(tick.ts.replace(tzinfo=timezone.utc) if tick.ts.tzinfo is None else tick.ts)
+        session = _session_for(
+            tick.ts.replace(tzinfo=timezone.utc) if tick.ts.tzinfo is None else tick.ts
+        )
 
         return FeatureRow(
             symbol=self.symbol,
